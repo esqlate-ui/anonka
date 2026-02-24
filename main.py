@@ -41,6 +41,7 @@ def jr(data, status=200):
 
 # ── Auth middleware ───────────────────────────────────────────────────────────
 
+@web.middleware
 async def check_api_auth(request: web.Request, handler):
     """Простая защита API по паролю через заголовок X-Admin-Password."""
     # Webhook и сам html-роут не трогаем
