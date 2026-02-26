@@ -180,14 +180,16 @@ async def _do_broadcast(bot: Bot, text: str, audience: str):
         await c.execute(
             "UPDATE broadcasts SET status='running' WHERE id=("
             "SELECT id FROM broadcasts WHERE text=$1 AND status='pending' "
-            "ORDER BY created_at DESC LIMIT 1)", text
+            "ORDER BY created_at DESC LIMIT 1)",
+            text
         )
     user_ids = [r["id"] for r in rows]
     sent, failed = await do_broadcast(bot, text, user_ids)
     async with db.pool().acquire() as c:
         await c.execute(
             "UPDATE broadcasts SET status='done', sent_to=$1, finished_at=NOW() "
-            "WHERE id=(SELECT id FROM broadcasts WHERE text=$2 AND status='running' "
+            "WHERE id=("
+            "SELECT id FROM broadcasts WHERE text=$2 AND status='running' "
             "ORDER BY created_at DESC LIMIT 1)",
             sent, text
         )
@@ -214,6 +216,31 @@ async def api_topics_toggle(r):
     async with db.pool().acquire() as c:
         await c.execute("UPDATE hot_topics SET is_active=$2 WHERE id=$1", d["id"], d["active"])
     return jr({"success": True})
+
+async def api_tg_file(r: web.Request) -> web.Response:
+    """Прокси для получения медиафайлов из Telegram по file_id."""
+    file_id = r.rel_url.query.get("file_id", "")
+    if not file_id:
+        return web.Response(status=400, text="file_id required")
+    try:
+        bot: Bot = r.app["bot"]
+        file = await bot.get_file(file_id)
+        file_url = f"https://api.telegram.org/file/bot{config.BOT_TOKEN}/{file.file_path}"
+        import aiohttp as aio_http
+        async with aio_http.ClientSession() as session:
+            async with session.get(file_url) as resp:
+                if resp.status != 200:
+                    return web.Response(status=404, text="File not found")
+                content_type = resp.headers.get("Content-Type", "application/octet-stream")
+                data = await resp.read()
+                return web.Response(
+                    body=data,
+                    content_type=content_type,
+                    headers={"Cache-Control": "max-age=3600"}
+                )
+    except Exception as e:
+        logger.error(f"tg_file error: {e}")
+        return web.Response(status=500, text=str(e))
 
 async def api_promo_list(r):
     async with db.pool().acquire() as c:
@@ -427,6 +454,7 @@ def create_app() -> web.Application:
     app.router.add_get("/payments",      api_payments)
     app.router.add_get("/realtime",      api_realtime)
     app.router.add_get("/topics",        api_topics)
+    app.router.add_get("/tg_file",         api_tg_file)
     app.router.add_get("/promos",        api_promo_list)
 
     # API — POST (требуют X-Admin-Password)
