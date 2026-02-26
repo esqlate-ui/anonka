@@ -472,19 +472,32 @@ let authed = false;
 let usersPage = 1, chatsPage = 1;
 let chartU, chartC;
 
-function doLogin() {
+async function doLogin() {
   const val = document.getElementById('pw-input').value;
-  if (val.length >= 4) {
-    _adminPwd = val;
-    authed = true;
-    document.getElementById('login-screen').style.display = 'none';
-    document.getElementById('sidebar').style.display = 'flex';
-    document.getElementById('main').style.display = 'block';
-    initApp();
-  } else {
+  if (val.length < 4) {
+    document.getElementById('login-err').textContent = 'Пароль слишком короткий';
+    document.getElementById('login-err').style.display = 'block';
+    return;
+  }
+  // Верифицируем пароль на сервере тестовым POST запросом
+  _adminPwd = val;
+  const testResp = await fetch('/users/ban', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json', 'X-Admin-Password': val},
+    body: JSON.stringify({user_id: 0, reason: '__ping__'})
+  });
+  if (testResp.status === 401) {
+    _adminPwd = '';
+    document.getElementById('login-err').textContent = 'Неверный пароль';
     document.getElementById('login-err').style.display = 'block';
     document.getElementById('pw-input').value = '';
+    return;
   }
+  authed = true;
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('sidebar').style.display = 'flex';
+  document.getElementById('main').style.display = 'block';
+  initApp();
 }
 
 function initApp() {
@@ -712,7 +725,7 @@ function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-function viewUserChats(userId) {
+async function viewUserChats(userId) {
   document.querySelector('[data-page="chats"]').click();
   setTimeout(async () => {
     const filter = document.getElementById('chats-filter');
@@ -809,6 +822,7 @@ async function loadPromos() {
 // Actions
 async function banUser(id) {
   if (!confirm(`Заблокировать пользователя ${id}?`)) return;
+  if (!confirm(`Заблокировать пользователя ${id}?`)) return;
   await api('/users/ban', {method:'POST', body:JSON.stringify({user_id:id,reason:'Бан из панели'})});
   toast('✅ Пользователь заблокирован');
   loadUsers(usersPage);
@@ -842,6 +856,10 @@ async function deleteTopic(id) {
 async function sendBroadcast() {
   const text = document.getElementById('bc-text').value.trim();
   const audience = document.getElementById('bc-audience').value;
+  const audienceLabels = {all: 'ВСЕМ пользователям', premium: 'Premium пользователям', free: 'Бесплатным пользователям'};
+  if (!confirm(`⚠️ Отправить рассылку ${audienceLabels[audience] || audience}?
+
+"${text.slice(0,100)}${text.length>100?'...':''}"`)) return;
   if (!text) { toast('Введи текст', true); return; }
   if (!confirm(`Отправить рассылку (${audience})?`)) return;
   const d = await api('/broadcast', {method:'POST', body:JSON.stringify({text,audience})});

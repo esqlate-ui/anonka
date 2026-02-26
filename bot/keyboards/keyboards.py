@@ -83,7 +83,7 @@ def rate_kb(session_id: int, partner_id: int) -> InlineKeyboardMarkup:
 def gifts_kb(session_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for key, g in GIFTS_DATA.items():
-        b.button(text=f"{g['emoji']} {g['name']} — {g['price_stars']}⭐", callback_data=f"gift:{key}:{session_id}")
+        b.button(text=f"{g['emoji']} {g['name']}", callback_data=f"gift:{key}:{session_id}")
     b.adjust(2)
     b.row(InlineKeyboardButton(text="❌ Закрыть", callback_data="gifts:close"))
     return b.as_markup()
@@ -93,7 +93,7 @@ def plans_kb() -> InlineKeyboardMarkup:
     from config.config import config
     b = InlineKeyboardBuilder()
     for plan_id, p in config.PLANS.items():
-        badge = f" [{p.get('badge','')}]" if p.get("badge") else ""
+        badge = f" · {p.get('badge','')}" if p.get("badge") else ""
         b.row(InlineKeyboardButton(
             text=f"{p['emoji']} {p['name']}{badge}",
             callback_data=f"plan:{plan_id}"

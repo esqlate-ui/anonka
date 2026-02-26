@@ -41,7 +41,6 @@ def jr(data, status=200):
 
 # ── Auth middleware ───────────────────────────────────────────────────────────
 
-@web.middleware
 async def check_api_auth(request: web.Request, handler):
     """Простая защита API по паролю через заголовок X-Admin-Password."""
     # Webhook и сам html-роут не трогаем
@@ -171,36 +170,26 @@ async def api_broadcast(r):
     return jr({"success": True, "total": total})
 
 async def _do_broadcast(bot: Bot, text: str, audience: str):
+    from utils.broadcast import do_broadcast
     async with db.pool().acquire() as c:
         if audience == "premium":
-            users = await c.fetch("SELECT id FROM users WHERE is_banned=FALSE AND is_premium=TRUE")
+            rows = await c.fetch("SELECT id FROM users WHERE is_banned=FALSE AND is_premium=TRUE")
         elif audience == "free":
-            users = await c.fetch("SELECT id FROM users WHERE is_banned=FALSE AND is_premium=FALSE")
+            rows = await c.fetch("SELECT id FROM users WHERE is_banned=FALSE AND is_premium=FALSE")
         else:
-            users = await c.fetch("SELECT id FROM users WHERE is_banned=FALSE")
-        # Помечаем рассылку как запущенную
+            rows = await c.fetch("SELECT id FROM users WHERE is_banned=FALSE")
         await c.execute(
             "UPDATE broadcasts SET status='running' WHERE text=$1 AND status='pending' "
-            "ORDER BY created_at DESC LIMIT 1",
-            text
+            "ORDER BY created_at DESC LIMIT 1", text
         )
-    sent = 0
-    for i, row in enumerate(users, 1):
-        try:
-            await bot.send_message(row["id"], text)
-            sent += 1
-        except Exception:
-            pass
-        if i % 25 == 0:          # пауза каждые 25 попыток (независимо от успеха)
-            await asyncio.sleep(1)
-    # Обновляем статистику рассылки
+    user_ids = [r["id"] for r in rows]
+    sent, failed = await do_broadcast(bot, text, user_ids)
     async with db.pool().acquire() as c:
         await c.execute(
             "UPDATE broadcasts SET status='done', sent_to=$1, finished_at=NOW() "
             "WHERE text=$2 AND status='running' ORDER BY created_at DESC LIMIT 1",
             sent, text
         )
-    logger.info(f"Broadcast done: {sent}/{len(users)}")
 
 async def api_topics(r):
     async with db.pool().acquire() as c:
@@ -283,8 +272,8 @@ async def matchmaking_loop(bot: Bot):
 
                 msg = (
                     "✅ *Собеседник найден!*\n\n"
-                    "Начинай писать — он тебя услышит 🎭\n"
-                    "_Ты полностью анонимен_"
+                    "Начинай писать — собеседник тебя услышит 🎭\n"
+                    "_Никто не узнает кто ты_"
                 )
                 try:
                     await bot.send_message(uid,        msg, parse_mode="Markdown", reply_markup=chat_kb())
@@ -328,16 +317,47 @@ async def daily_cleanup():
 async def on_startup(app: web.Application):
     global _storage, _bot_id
     logger.info("🚀 Запуск Anonka...")
+
+    # Проверка обязательных переменных окружения
+    missing = []
+    if not config.BOT_TOKEN:
+        missing.append("BOT_TOKEN")
+    if not config.DB_DSN:
+        missing.append("DATABASE_URL")
+    if not config.ADMIN_IDS:
+        logger.warning("⚠️  ADMIN_IDS не задан — администратор не будет иметь доступа!")
+    if not config.TON_WALLET:
+        logger.warning("⚠️  TON_WALLET не задан — TON-оплата недоступна")
+    if not config.ADMIN_PANEL_PASSWORD:
+        logger.warning("⚠️  ADMIN_PASSWORD не задан — панель администратора не защищена!")
+    if missing:
+        raise RuntimeError(f"❌ Обязательные переменные не заданы: {', '.join(missing)}. "
+                           f"Проверь .env или переменные окружения.")
+
     await db.init(config.DB_DSN)
     logger.info("✅ БД подключена")
 
     # Очищаем зависшие сессии и очередь после возможного падения/деплоя
     await db.end_stale_sessions()
     async with db.pool().acquire() as c:
+        # Получаем пользователей из очереди чтобы уведомить их
+        queue_users = await c.fetch("SELECT user_id FROM search_queue")
         await c.execute("DELETE FROM search_queue")
     logger.info("✅ Зависшие сессии и очередь очищены")
 
-    bot: Bot       = app["bot"]
+    # Уведомляем пользователей из очереди о рестарте
+    bot: Bot = app["bot"]
+    for row in queue_users:
+        try:
+            from bot.keyboards.keyboards import main_menu
+            await bot.send_message(
+                row["user_id"],
+                "⚠️ Бот был перезапущен. Поиск отменён — нажми *🔍 Найти собеседника* снова.",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
+
     dp: Dispatcher = app["dp"]
 
     # Сохраняем storage и bot_id для matchmaking
@@ -418,6 +438,10 @@ def create_app() -> web.Application:
     app.router.add_post("/topics/delete",       api_topics_delete)
     app.router.add_post("/topics/toggle",       api_topics_toggle)
     app.router.add_post("/promo",               api_promo_create)
+
+    # Health check для Railway/Docker
+    app.router.add_get("/health", lambda r: web.Response(text="ok"))
+    app.router.add_get("/", lambda r: web.Response(text="Anonka Bot is running"))
 
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)

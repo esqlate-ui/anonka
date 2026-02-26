@@ -295,9 +295,11 @@ async def reset_daily():
 
 async def add_to_queue(user_id: int, gender_filter: str = None, interests: list = None, is_premium: bool = False):
     async with _pool.acquire() as c:
+        # ON CONFLICT DO UPDATE обновляет фильтры но НЕ сбивает added_at
+        # чтобы пользователь не терял место в очереди при повторном вызове
         await c.execute(
             "INSERT INTO search_queue(user_id,gender_filter,interests_filter,is_premium) VALUES($1,$2,$3,$4) "
-            "ON CONFLICT(user_id) DO UPDATE SET gender_filter=$2,interests_filter=$3,is_premium=$4,added_at=NOW()",
+            "ON CONFLICT(user_id) DO UPDATE SET gender_filter=$2,interests_filter=$3,is_premium=$4",
             user_id, gender_filter, interests or [], is_premium
         )
 

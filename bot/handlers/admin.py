@@ -154,17 +154,9 @@ async def cmd_broadcast(message: Message, bot: Bot):
         return
     msg_text = text[1]
     async with db.pool().acquire() as c:
-        users = await c.fetch("SELECT id FROM users WHERE is_banned=FALSE")
-    total = len(users)
+        rows = await c.fetch("SELECT id FROM users WHERE is_banned=FALSE")
+    total = len(rows)
     await message.answer(f"📢 Начинаю рассылку {total} пользователям...")
-    import asyncio
-    sent, failed = 0, 0
-    for i, row in enumerate(users, 1):
-        try:
-            await bot.send_message(row["id"], msg_text)
-            sent += 1
-        except Exception:
-            failed += 1
-        if i % 25 == 0:          # пауза каждые 25 попыток независимо от успеха
-            await asyncio.sleep(1)
+    from utils.broadcast import do_broadcast
+    sent, failed = await do_broadcast(bot, msg_text, [r["id"] for r in rows])
     await message.answer(f"✅ Рассылка завершена.\nОтправлено: {sent}\nОшибок: {failed}")

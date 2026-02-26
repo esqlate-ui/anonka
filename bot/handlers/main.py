@@ -539,7 +539,7 @@ async def show_profile(message: Message):
     )
     gender_str = {"male": "👨 Мужской", "female": "👩 Женский"}.get(user.get("gender"), "🤷 Не указан")
     interests  = ", ".join(user.get("interests") or []) or "Не выбраны"
-    ref        = f"https://t.me/{config.BOT_USERNAME}?start={user['referral_code']}"
+    ref        = f"https://t.me/{config.BOT_USERNAME}?start={user['referral_code']}" if config.BOT_USERNAME else "не задан BOT_USERNAME"
 
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="🏆 Достижения",   callback_data="achievements:show"))
@@ -554,8 +554,8 @@ async def show_profile(message: Message):
         f"✉️ Сообщений: *{user['total_messages']}*\n"
         f"⚡ XP: *{user['xp']}*\n\n"
         f"💎 Тариф: *{plan_str}*{until_str}\n\n"
-        f"👥 Рефералов: *{user['referral_count']}*\n"
-        f"🔗 Твоя ссылка:\n`{ref}`",
+        f"👥 Рефералов: *{user['referral_count']}* _(+3 дня Premium за каждого)_\n"
+        f"🔗 Приглашай друзей:\n`{ref}`",
         parse_mode="Markdown", reply_markup=kb.as_markup()
     )
 
