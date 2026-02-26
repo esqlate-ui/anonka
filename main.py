@@ -41,12 +41,11 @@ def jr(data, status=200):
 
 # ── Auth middleware ───────────────────────────────────────────────────────────
 
+@web.middleware
 async def check_api_auth(request: web.Request, handler):
     """Простая защита API по паролю через заголовок X-Admin-Password."""
-    # Webhook и сам html-роут не трогаем
-    if request.path in (config.WEBHOOK_PATH, "/admin", "/admin/"):
+    if request.path in (config.WEBHOOK_PATH, "/admin", "/admin/", "/health", "/"):
         return await handler(request)
-    # Только POST-методы требуют авторизации (GET - статистика, менее критична)
     if request.method == "POST":
         pwd = request.headers.get("X-Admin-Password", "")
         if pwd != config.ADMIN_PANEL_PASSWORD:
